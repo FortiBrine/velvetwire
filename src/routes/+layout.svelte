@@ -4,4 +4,7 @@
 	const { children } = $props();
 </script>
 
-{@render children()}
+<!-- Force dark mode — the app always runs with Discord's dark palette -->
+<div class="dark contents">
+	{@render children()}
+</div>

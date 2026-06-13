@@ -12,9 +12,14 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "velvetwire",
-        "width": 800,
-        "height": 600
+        "width": 1100,
+        "height": 700,
+        "minWidth": 900,
+        "minHeight": 580,
+        "resizable": true,
+        "center": true
       }
     ],
     "security": {
