@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { activity } from '$lib/stores/activity.svelte';
 	import { i18n } from '$lib/i18n';
-	import { ACTIVITY_TYPES } from '$lib/types';
+	import { ACTIVITY_TYPES, CHAR_LIMITS } from '$lib/stores/activity.svelte';
 	import SectionHeader from '$lib/components/SectionHeader.svelte';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
@@ -68,6 +68,9 @@
 				bind:value={activity.activityName}
 				class="h-8 text-xs bg-input border-border"
 			/>
+			<p class="text-right text-[10px] {activity.activityName.length > CHAR_LIMITS.activityName ? 'text-destructive' : 'text-muted-foreground'}">
+				{activity.activityName.length}/{CHAR_LIMITS.activityName}
+			</p>
 		{/if}
 	</div>
 
@@ -91,6 +94,9 @@
 					bind:value={activity.details}
 					class="h-8 text-xs bg-input border-border"
 				/>
+				<p class="text-right text-[10px] {activity.details.length > CHAR_LIMITS.details ? 'text-destructive' : 'text-muted-foreground'}">
+					{activity.details.length}/{CHAR_LIMITS.details}
+				</p>
 			{/if}
 		</div>
 
@@ -109,6 +115,9 @@
 					bind:value={activity.stateText}
 					class="h-8 text-xs bg-input border-border"
 				/>
+				<p class="text-right text-[10px] {activity.stateText.length > CHAR_LIMITS.stateText ? 'text-destructive' : 'text-muted-foreground'}">
+					{activity.stateText.length}/{CHAR_LIMITS.stateText}
+				</p>
 			{/if}
 		</div>
 	</div>

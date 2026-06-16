@@ -58,21 +58,20 @@ export const en = {
 			title: 'Timestamp',
 			modes: {
 				none: 'None',
+				freeze: 'Freeze',
 				elapsed: 'Elapsed',
-				frozen: 'Frozen',
-				fixed: 'Fixed'
+				countdown: 'Countdown'
 			},
-			frozen: {
-				hours: 'Hours',
-				minutes: 'Minutes',
-				info: 'Re-syncs every 60 s to keep the time frozen.'
-			},
-			fixed: {
-				label: 'Start date & time',
-				info: 'Elapsed counts from this exact moment.'
+			hours: 'Hours',
+			minutes: 'Minutes',
+			freeze: {
+				info: 'Displays a fixed elapsed time — re-syncs every 5 s to keep drift imperceptible.'
 			},
 			elapsed: {
-				info: 'Shows time since activity was started.'
+				info: 'Starts at the given offset and counts up.'
+			},
+			countdown: {
+				info: 'Counts down from the given duration to zero.'
 			}
 		},
 		buttons: {
@@ -92,5 +91,13 @@ export const en = {
 	},
 	errors: {
 		discord: 'Could not connect to Discord. Make sure the desktop app is running.'
+	},
+	presets: {
+		label: 'Preset',
+		unsaved: 'Unsaved…',
+		save: 'Save as',
+		overwrite: 'Overwrite',
+		delete: 'Delete',
+		namePlaceholder: 'Preset name…'
 	}
 };

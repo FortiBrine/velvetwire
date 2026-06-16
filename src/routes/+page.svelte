@@ -5,6 +5,7 @@
 	import { Button } from '$lib/components/ui/button';
 	import SettingsPanel from '$lib/components/SettingsPanel.svelte';
 	import DetailsPanel from '$lib/components/DetailsPanel.svelte';
+	import PresetBar from '$lib/components/PresetBar.svelte';
 
 	onDestroy(() => activity.stopPreviewTimer());
 </script>
@@ -13,15 +14,6 @@
 
 	<header class="flex items-center gap-3 px-5 py-3 border-b border-border shrink-0">
 		<div class="flex items-center gap-2.5 mr-auto">
-			<div class="size-7 rounded-full bg-primary/20 border border-primary/40 flex items-center justify-center">
-				<svg viewBox="0 0 20 20" fill="none" class="size-4">
-					<path
-						d="M10 2C5.58 2 2 5.58 2 10s3.58 8 8 8 8-3.58 8-8-3.58-8-8-8Zm0 3a2 2 0 1 1 0 4 2 2 0 0 1 0-4Zm0 9.5A5.84 5.84 0 0 1 5 12c.025-1.667 3.333-2.583 5-2.583S14.975 10.333 15 12a5.84 5.84 0 0 1-5 2.5Z"
-						fill="currentColor"
-						class="text-primary"
-					/>
-				</svg>
-			</div>
 			<span class="font-semibold text-sm text-foreground">{$i18n.header.title}</span>
 			<span class="text-xs text-muted-foreground">{$i18n.header.subtitle}</span>
 		</div>
@@ -51,7 +43,7 @@
 			<Button
 				size="sm"
 				class="h-8 px-4 text-xs bg-primary hover:bg-primary/90 disabled:opacity-40"
-				disabled={activity.isLoading}
+				disabled={activity.isLoading || activity.isOverLimit}
 				onclick={() => activity.startRpc()}
 			>
 				{activity.isLoading ? $i18n.header.connecting : activity.isActive ? $i18n.header.update : $i18n.header.start}
@@ -73,6 +65,8 @@
 			</button>
 		</div>
 	{/if}
+
+	<PresetBar />
 
 	<div class="grid grid-cols-2 flex-1 overflow-hidden divide-x divide-border">
 		<SettingsPanel />
