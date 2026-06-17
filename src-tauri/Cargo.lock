@@ -4176,7 +4176,7 @@ dependencies = [
 
 [[package]]
 name = "velvetwire"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "discord-presence",
  "serde",

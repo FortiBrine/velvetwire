@@ -1,6 +1,6 @@
 [package]
 name = "velvetwire"
-version = "0.1.0"
+version = "0.1.1"
 description = "Desktop app for custom Discord Rich Presence"
 authors = ["FortiBrine"]
 edition = "2021"
