@@ -5,7 +5,7 @@ pub use activity::*;
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .manage(AppState::new())
+        .manage(AppState::default())
         .setup(|app| {
             use tauri::Manager;
             use tauri::menu::{MenuBuilder, MenuItem};

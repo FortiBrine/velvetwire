@@ -8,6 +8,12 @@ use discord_presence::models::rich_presence::{Activity, ActivityType};
 
 const CLIENT_ID: u64 = 1515403261618819294;
 
+// IPC socket needs time to close before a new connection can open.
+const RECONNECT_DELAY_MS: u64 = 800;
+const CONNECT_POLL_INTERVAL_MS: u64 = 100;
+const CONNECT_POLL_ATTEMPTS: u32 = 50; // 50 × 100 ms = 5 s max
+const FREEZE_RESYNC_SECS: u64 = 5;
+
 fn unix_now() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -15,11 +21,42 @@ fn unix_now() -> u64 {
         .as_secs()
 }
 
+#[derive(serde::Deserialize, Debug, Clone, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum TimeMode {
+    None,
+    Elapsed,
+    Freeze,
+    Countdown,
+}
+
+#[derive(Debug, Clone, Copy, serde::Deserialize)]
+#[serde(try_from = "u8")]
+pub enum ActivityKind {
+    Playing,
+    Listening,
+    Watching,
+    Competing,
+}
+
+impl TryFrom<u8> for ActivityKind {
+    type Error = String;
+    fn try_from(v: u8) -> Result<Self, Self::Error> {
+        match v {
+            0 => Ok(Self::Playing),
+            2 => Ok(Self::Listening),
+            3 => Ok(Self::Watching),
+            5 => Ok(Self::Competing),
+            _ => Err(format!("unknown activity type: {v}")),
+        }
+    }
+}
+
 #[derive(serde::Deserialize, Debug, Clone)]
 pub struct ActivityConfig {
     pub custom_client_id_enabled: bool,
     pub custom_client_id: Option<String>,
-    pub activity_type: u8,
+    pub activity_type: ActivityKind,
     pub name_enabled: bool,
     pub name: Option<String>,
     pub details_enabled: bool,
@@ -31,7 +68,7 @@ pub struct ActivityConfig {
     pub large_text: Option<String>,
     pub small_image: Option<String>,
     pub small_text: Option<String>,
-    pub time_mode: String,
+    pub time_mode: TimeMode,
     pub offset_hours: Option<u64>,
     pub offset_minutes: Option<u64>,
     pub buttons_enabled: bool,
@@ -47,19 +84,40 @@ impl ActivityConfig {
     }
 }
 
+#[derive(serde::Serialize, Debug)]
+pub struct RpcError {
+    pub code: &'static str,
+    pub message: String,
+}
+
+impl RpcError {
+    fn discord_unavailable() -> Self {
+        Self {
+            code: "discord_unavailable",
+            message: "Could not connect to Discord. Make sure the desktop app is running.".into(),
+        }
+    }
+
+    fn internal(msg: impl Into<String>) -> Self {
+        Self { code: "internal", message: msg.into() }
+    }
+}
+
 pub struct AppState {
     pub client: Arc<Mutex<Option<Client>>>,
     pub timer_handle: Mutex<Option<JoinHandle<()>>>,
 }
 
-impl AppState {
-    pub fn new() -> Self {
+impl Default for AppState {
+    fn default() -> Self {
         Self {
             client: Arc::new(Mutex::new(None)),
             timer_handle: Mutex::new(None),
         }
     }
+}
 
+impl AppState {
     fn teardown(&self) -> Result<(), String> {
         {
             let mut h = self.timer_handle.lock().map_err(|e| e.to_string())?;
@@ -126,10 +184,10 @@ fn apply_activity(
     };
 
     let activity_type = match config.activity_type {
-        2 => ActivityType::Listening,
-        3 => ActivityType::Watching,
-        5 => ActivityType::Competing,
-        _ => ActivityType::Playing,
+        ActivityKind::Listening => ActivityType::Listening,
+        ActivityKind::Watching => ActivityType::Watching,
+        ActivityKind::Competing => ActivityType::Competing,
+        ActivityKind::Playing => ActivityType::Playing,
     };
     let act = act.activity_type(activity_type);
 
@@ -182,10 +240,10 @@ fn apply_activity(
 pub async fn start_rpc(
     config: ActivityConfig,
     state: tauri::State<'_, AppState>,
-) -> Result<(), String> {
-    state.teardown()?;
+) -> Result<(), RpcError> {
+    state.teardown().map_err(RpcError::internal)?;
 
-    tokio::time::sleep(Duration::from_millis(800)).await;
+    tokio::time::sleep(Duration::from_millis(RECONNECT_DELAY_MS)).await;
 
     let client_id = if config.custom_client_id_enabled {
         config
@@ -200,49 +258,47 @@ pub async fn start_rpc(
     let mut client = Client::new(client_id);
     client.start();
 
-    for _ in 0..50 {
+    for _ in 0..CONNECT_POLL_ATTEMPTS {
         if Client::is_ready() {
             break;
         }
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        tokio::time::sleep(Duration::from_millis(CONNECT_POLL_INTERVAL_MS)).await;
     }
 
     if !Client::is_ready() {
-        return Err(
-            "Could not connect to Discord. Make sure the desktop app is running.".into(),
-        );
+        return Err(RpcError::discord_unavailable());
     }
 
     let offset = config.offset_secs();
-    let (start_ts, end_ts) = match config.time_mode.as_str() {
-        "elapsed" | "freeze" => (Some(unix_now().saturating_sub(offset)), None),
-        "countdown" => (None, Some(unix_now() + offset)),
-        _ => (None, None),
+    let (start_ts, end_ts) = match config.time_mode {
+        TimeMode::Elapsed | TimeMode::Freeze => (Some(unix_now().saturating_sub(offset)), None),
+        TimeMode::Countdown => (None, Some(unix_now() + offset)),
+        TimeMode::None => (None, None),
     };
 
     {
         let cfg = config.clone();
         client
             .set_activity(|act| apply_activity(act, &cfg, start_ts, end_ts))
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| RpcError::internal(e.to_string()))?;
     }
 
     {
-        let mut guard = state.client.lock().map_err(|e| e.to_string())?;
+        let mut guard = state.client.lock().map_err(|e| RpcError::internal(e.to_string()))?;
         *guard = Some(client);
     }
 
-    if config.time_mode == "freeze" {
+    if config.time_mode == TimeMode::Freeze {
         let client_arc = Arc::clone(&state.client);
         let config_task = config.clone();
 
         let handle = tokio::spawn(async move {
-            let mut ticker = interval(Duration::from_secs(5));
+            let mut ticker = interval(Duration::from_secs(FREEZE_RESYNC_SECS));
             ticker.tick().await;
             loop {
                 ticker.tick().await;
                 let start = unix_now().saturating_sub(config_task.offset_secs());
-                let mut guard = client_arc.lock().unwrap();
+                let mut guard = client_arc.lock().unwrap_or_else(|e| e.into_inner());
                 if let Some(ref mut c) = *guard {
                     let _ = c.set_activity(|act| {
                         apply_activity(act, &config_task, Some(start), None)
@@ -253,7 +309,7 @@ pub async fn start_rpc(
             }
         });
 
-        let mut h = state.timer_handle.lock().map_err(|e| e.to_string())?;
+        let mut h = state.timer_handle.lock().map_err(|e| RpcError::internal(e.to_string()))?;
         *h = Some(handle);
     }
 
@@ -261,6 +317,6 @@ pub async fn start_rpc(
 }
 
 #[tauri::command]
-pub async fn stop_rpc(state: tauri::State<'_, AppState>) -> Result<(), String> {
-    state.teardown()
+pub async fn stop_rpc(state: tauri::State<'_, AppState>) -> Result<(), RpcError> {
+    state.teardown().map_err(RpcError::internal)
 }

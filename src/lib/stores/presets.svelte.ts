@@ -1,4 +1,6 @@
 import { untrack } from 'svelte';
+import { get } from 'svelte/store';
+import { i18n } from '$lib/i18n';
 import { activity, type TimeMode } from './activity.svelte';
 
 export interface PresetConfig {
@@ -91,28 +93,14 @@ class PresetsStore {
 	list = $state<Preset[]>([]);
 	activePresetId = $state<string | null>(null);
 
-	get atLimit(): boolean {
-		return this.list.length >= MAX_PRESETS;
-	}
+	atLimit = $derived(this.list.length >= MAX_PRESETS);
 
 	constructor() {
 		this.#load();
 
 		$effect.root(() => {
 			$effect(() => {
-				void [
-					activity.customClientIdEnabled, activity.customClientId,
-					activity.activityType,
-					activity.nameEnabled, activity.activityName,
-					activity.detailsEnabled, activity.details,
-					activity.stateEnabled, activity.stateText,
-					activity.imagesEnabled, activity.largeImage, activity.largeText,
-					activity.smallImage, activity.smallText,
-					activity.timeMode, activity.offsetHours, activity.offsetMinutes,
-					activity.buttonsEnabled,
-					activity.button1Label, activity.button1Url,
-					activity.button2Label, activity.button2Url,
-				];
+				snapshotActivity(); // reading the fields subscribes this effect to each of them
 				untrack(() => {
 					if (this.activePresetId !== null) this.activePresetId = null;
 				});
@@ -124,8 +112,9 @@ class PresetsStore {
 		try {
 			const raw = localStorage.getItem(STORAGE_KEY);
 			if (raw) this.list = JSON.parse(raw) as Preset[];
-		} catch {
+		} catch (e) {
 			this.list = [];
+			activity.errorMsg = get(i18n).errors.presetsCorrupted;
 		}
 	}
 
@@ -140,7 +129,9 @@ class PresetsStore {
 			config: snapshotActivity(),
 		};
 		this.list = [...this.list, preset];
-		untrack(() => { this.activePresetId = preset.id; });
+		untrack(() => {
+			this.activePresetId = preset.id;
+		});
 		this.#persist();
 		return preset;
 	}
@@ -148,7 +139,7 @@ class PresetsStore {
 	overwriteActive(): void {
 		if (!this.activePresetId) return;
 		this.list = this.list.map((p) =>
-			p.id === this.activePresetId ? { ...p, config: snapshotActivity() } : p
+			p.id === this.activePresetId ? { ...p, config: snapshotActivity() } : p,
 		);
 		this.#persist();
 	}

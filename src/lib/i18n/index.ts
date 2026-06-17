@@ -10,7 +10,7 @@ function createI18nStore() {
 		subscribe,
 		setLanguage: (lang: Language) => {
 			if (lang === 'en') set(en);
-		}
+		},
 	};
 }
 

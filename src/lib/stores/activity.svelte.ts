@@ -1,9 +1,15 @@
 import { invoke } from '@tauri-apps/api/core';
+import { get } from 'svelte/store';
 import { i18n } from '$lib/i18n';
 
 export type TimeMode = 'none' | 'freeze' | 'elapsed' | 'countdown';
 
-/** Must match the Rust `ActivityConfig` struct field-for-field (snake_case). */
+export interface RpcError {
+	code: 'discord_unavailable' | 'internal';
+	message: string;
+}
+
+// keep in sync with ActivityConfig in activity.rs
 export interface ActivityConfig {
 	custom_client_id_enabled: boolean;
 	custom_client_id: string | null;
@@ -57,6 +63,33 @@ export const CHAR_LIMITS = {
 	button2Url: 512,
 } as const;
 
+const ACTIVITY_STORAGE_KEY = 'velvetwire_activity';
+
+interface PersistedActivity {
+	customClientIdEnabled: boolean;
+	customClientId: string;
+	activityType: string;
+	nameEnabled: boolean;
+	activityName: string;
+	detailsEnabled: boolean;
+	details: string;
+	stateEnabled: boolean;
+	stateText: string;
+	imagesEnabled: boolean;
+	largeImage: string;
+	largeText: string;
+	smallImage: string;
+	smallText: string;
+	timeMode: TimeMode;
+	offsetHours: number;
+	offsetMinutes: number;
+	buttonsEnabled: boolean;
+	button1Label: string;
+	button1Url: string;
+	button2Label: string;
+	button2Url: string;
+}
+
 class ActivityStore {
 	isActive = $state(false);
 	isLoading = $state(false);
@@ -97,14 +130,94 @@ class ActivityStore {
 	#timerInterval: ReturnType<typeof setInterval> | null = null;
 
 	activityTypeMeta = $derived(
-		ACTIVITY_TYPES.find((t) => t.value === this.activityType) ?? ACTIVITY_TYPES[0]
+		ACTIVITY_TYPES.find((t) => t.value === this.activityType) ?? ACTIVITY_TYPES[0],
 	);
 
 	isOverLimit = $derived(
-		(Object.entries(CHAR_LIMITS) as [keyof typeof CHAR_LIMITS, number][]).some(
-			([field, max]) => (this[field as keyof this] as string).length > max
-		)
+		this.activityName.length > CHAR_LIMITS.activityName ||
+			this.details.length > CHAR_LIMITS.details ||
+			this.stateText.length > CHAR_LIMITS.stateText ||
+			this.largeImage.length > CHAR_LIMITS.largeImage ||
+			this.largeText.length > CHAR_LIMITS.largeText ||
+			this.smallImage.length > CHAR_LIMITS.smallImage ||
+			this.smallText.length > CHAR_LIMITS.smallText ||
+			this.button1Label.length > CHAR_LIMITS.button1Label ||
+			this.button1Url.length > CHAR_LIMITS.button1Url ||
+			this.button2Label.length > CHAR_LIMITS.button2Label ||
+			this.button2Url.length > CHAR_LIMITS.button2Url,
 	);
+
+	constructor() {
+		this.#loadState();
+		$effect.root(() => {
+			$effect(() => {
+				this.#saveState();
+			});
+		});
+	}
+
+	#snapshot(): PersistedActivity {
+		return {
+			customClientIdEnabled: this.customClientIdEnabled,
+			customClientId: this.customClientId,
+			activityType: this.activityType,
+			nameEnabled: this.nameEnabled,
+			activityName: this.activityName,
+			detailsEnabled: this.detailsEnabled,
+			details: this.details,
+			stateEnabled: this.stateEnabled,
+			stateText: this.stateText,
+			imagesEnabled: this.imagesEnabled,
+			largeImage: this.largeImage,
+			largeText: this.largeText,
+			smallImage: this.smallImage,
+			smallText: this.smallText,
+			timeMode: this.timeMode,
+			offsetHours: this.offsetHours,
+			offsetMinutes: this.offsetMinutes,
+			buttonsEnabled: this.buttonsEnabled,
+			button1Label: this.button1Label,
+			button1Url: this.button1Url,
+			button2Label: this.button2Label,
+			button2Url: this.button2Url,
+		};
+	}
+
+	#saveState(): void {
+		localStorage.setItem(ACTIVITY_STORAGE_KEY, JSON.stringify(this.#snapshot()));
+	}
+
+	#loadState(): void {
+		try {
+			const raw = localStorage.getItem(ACTIVITY_STORAGE_KEY);
+			if (!raw) return;
+			const s = JSON.parse(raw) as PersistedActivity;
+			this.customClientIdEnabled = s.customClientIdEnabled ?? false;
+			this.customClientId = s.customClientId ?? '';
+			this.activityType = s.activityType ?? '0';
+			this.nameEnabled = s.nameEnabled ?? false;
+			this.activityName = s.activityName ?? '';
+			this.detailsEnabled = s.detailsEnabled ?? true;
+			this.details = s.details ?? '';
+			this.stateEnabled = s.stateEnabled ?? true;
+			this.stateText = s.stateText ?? '';
+			this.imagesEnabled = s.imagesEnabled ?? true;
+			this.largeImage = s.largeImage ?? '';
+			this.largeText = s.largeText ?? '';
+			this.smallImage = s.smallImage ?? '';
+			this.smallText = s.smallText ?? '';
+			this.timeMode = s.timeMode ?? 'none';
+			this.offsetHours = s.offsetHours ?? 0;
+			this.offsetMinutes = s.offsetMinutes ?? 0;
+			this.buttonsEnabled = s.buttonsEnabled ?? false;
+			this.button1Label = s.button1Label ?? '';
+			this.button1Url = s.button1Url ?? '';
+			this.button2Label = s.button2Label ?? '';
+			this.button2Url = s.button2Url ?? '';
+		} catch {
+			// ignore parse errors, start with defaults
+		}
+	}
 
 	startPreviewTimer() {
 		this.stopPreviewTimer();
@@ -154,7 +267,7 @@ class ActivityStore {
 				button1_label: this.buttonsEnabled ? this.button1Label.trim() || null : null,
 				button1_url: this.buttonsEnabled ? this.button1Url.trim() || null : null,
 				button2_label: this.buttonsEnabled ? this.button2Label.trim() || null : null,
-				button2_url: this.buttonsEnabled ? this.button2Url.trim() || null : null
+				button2_url: this.buttonsEnabled ? this.button2Url.trim() || null : null,
 			};
 
 			await invoke('start_rpc', { config });
@@ -162,14 +275,10 @@ class ActivityStore {
 			if (this.timeMode === 'elapsed') this.startPreviewTimer();
 			else this.stopPreviewTimer();
 		} catch (e) {
-			const errorText = String(e);
-			let msg = errorText;
-			i18n.subscribe((locale) => {
-				if (errorText === 'Could not connect to Discord. Make sure the desktop app is running.') {
-					msg = locale.errors.discord;
-				}
-			})();
-			this.errorMsg = msg;
+			const err = e as RpcError;
+			const locale = get(i18n);
+			this.errorMsg =
+				err?.code === 'discord_unavailable' ? locale.errors.discord : (err?.message ?? String(e));
 		} finally {
 			this.isLoading = false;
 		}
@@ -183,7 +292,8 @@ class ActivityStore {
 			this.isActive = false;
 			this.stopPreviewTimer();
 		} catch (e) {
-			this.errorMsg = String(e);
+			const err = e as RpcError;
+			this.errorMsg = err?.message ?? String(e);
 		} finally {
 			this.isLoading = false;
 		}
