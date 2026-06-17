@@ -20,12 +20,9 @@ jobs:
           - platform: windows-latest
             rust-target: ''
             args: ''
-          - platform: macos-13
-            rust-target: x86_64-apple-darwin
-            args: --target x86_64-apple-darwin
           - platform: macos-latest
-            rust-target: aarch64-apple-darwin
-            args: --target aarch64-apple-darwin
+            rust-target: aarch64-apple-darwin,x86_64-apple-darwin
+            args: --target universal-apple-darwin
 
     runs-on: ${{ matrix.platform }}
 
